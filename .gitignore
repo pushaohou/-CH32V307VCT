@@ -1,0 +1,20 @@
+# Build output
+obj/
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE temp (MounRiver)
+.mrs/*.snapshot
+
+# OS
+Thumbs.db
+.DS_Store
