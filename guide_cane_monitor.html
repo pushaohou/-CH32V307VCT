@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能导盲杖 · 看护端监控</title>
+<style>
+  :root { --bg: #0a0e17; --panel: #111827; --border: #1e293b; --text: #cbd5e1; --dim: #64748b; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI','Microsoft YaHei',sans-serif; background:var(--bg); color:var(--text);
+         display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px; }
+  .monitor { width:720px; background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:32px; }
+
+  .header { text-align:center; margin-bottom:28px; }
+  .header h1 { font-size:22px; letter-spacing:2px; color:#e2e8f0; }
+  .header .sub { font-size:12px; color:var(--dim); margin-top:4px; }
+
+  .section { margin-bottom:20px; }
+  .section-title { font-size:11px; text-transform:uppercase; letter-spacing:2px; color:var(--dim); margin-bottom:10px;
+                   border-bottom:1px solid var(--border); padding-bottom:6px; }
+
+  .dist-row { display:flex; gap:16px; }
+  .dist-card { flex:1; background:#0f172a; border-radius:10px; padding:14px; text-align:center; transition:border .3s; }
+  .dist-card .label { font-size:12px; color:var(--dim); }
+  .dist-card .value { font-size:36px; font-weight:700; margin:6px 0; font-variant-numeric:tabular-nums; }
+  .dist-card .bar-wrap { height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:6px; }
+  .dist-card .bar-fill { height:100%; border-radius:3px; transition:width .3s,background .3s; }
+
+  .attitude { display:flex; gap:16px; }
+  .att-card { flex:1; background:#0f172a; border-radius:10px; padding:14px; text-align:center; }
+  .att-card .label { font-size:12px; color:var(--dim); }
+  .att-card .value { font-size:28px; font-weight:700; margin-top:6px; }
+
+  .alert-box { padding:16px; border-radius:10px; text-align:center; font-size:18px; font-weight:700;
+               transition:all .3s; letter-spacing:2px; }
+  .alert-ok     { background:#0a2e1a; color:#4ade80; border:1px solid #166534; }
+  .alert-warn   { background:#2e1a0a; color:#fbbf24; border:1px solid #854d0e; }
+  .alert-danger { background:#2e0a0a; color:#f87171; border:1px solid #991b1b; }
+  .alert-fall   { background:#4a0000; color:#fff; border:2px solid #ff0000; animation:pulse .6s infinite; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+
+  .log-line { font-family:'Cascadia Code','Consolas',monospace; font-size:11px; color:var(--dim);
+              padding:3px 0; border-bottom:1px solid rgba(255,255,255,.03); }
+
+  .status-bar { display:flex; justify-content:space-between; font-size:11px; color:var(--dim); margin-top:16px;
+                border-top:1px solid var(--border); padding-top:12px; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:4px; }
+  .dot.live { background:#4ade80; }
+  .dot.dead { background:#ef4444; }
+  .error-msg { text-align:center; color:#ef4444; padding:20px; display:none; }
+
+  /* 通知弹窗 */
+  .notify-overlay { position:fixed; top:0; left:0; width:100%; height:100%;
+    background:rgba(0,0,0,.7); display:none; justify-content:center; align-items:center; z-index:999; }
+  .notify-overlay.show { display:flex; }
+  .notify-popup { background:#1a1f2e; border:2px solid #4ade80; border-radius:16px; padding:40px 50px;
+    text-align:center; animation:popIn .3s ease-out; max-width:420px; }
+  @keyframes popIn { 0%{transform:scale(.8); opacity:0} 100%{transform:scale(1); opacity:1} }
+  .notify-popup .icon { font-size:56px; margin-bottom:16px; }
+  .notify-popup h2 { color:#4ade80; font-size:20px; margin-bottom:8px; letter-spacing:2px; }
+  .notify-popup .detail { color:#94a3b8; font-size:13px; line-height:1.8; margin-bottom:20px; }
+  .notify-popup .btn { background:#4ade80; color:#0a0e17; border:none; padding:10px 32px;
+    border-radius:8px; font-size:15px; font-weight:700; cursor:pointer; letter-spacing:1px; }
+  .notify-popup .btn:hover { background:#22c55e; }
+  .notify-toast { position:fixed; top:20px; right:20px; background:#166534; color:#4ade80;
+    border:1px solid #4ade80; border-radius:10px; padding:14px 24px; font-size:14px; font-weight:700;
+    display:none; z-index:1000; animation:slideIn .4s ease-out; letter-spacing:1px; }
+  .notify-toast.show { display:block; }
+  @keyframes slideIn { 0%{transform:translateX(120%); opacity:0} 100%{transform:translateX(0); opacity:1} }
+
+</style>
+</head>
+<body>
+<div class="monitor">
+  <div class="header">
+    <h1>智能导盲杖 · 看护端监控</h1>
+    <div class="sub" id="conn-status">等待蓝牙数据...</div>
+  </div>
+
+  <!-- 测距 -->
+  <div class="section">
+    <div class="section-title">测距 (cm)</div>
+    <div class="dist-row">
+      <div class="dist-card" id="card-front">
+        <div class="label">前 F</div>
+        <div class="value" id="val-front">---</div>
+        <div class="bar-wrap"><div class="bar-fill" id="bar-front" style="width:0%"></div></div>
+      </div>
+      <div class="dist-card" id="card-left">
+        <div class="label">左 L</div>
+        <div class="value" id="val-left">---</div>
+        <div class="bar-wrap"><div class="bar-fill" id="bar-left" style="width:0%"></div></div>
+      </div>
+      <div class="dist-card" id="card-right">
+        <div class="label">右 R</div>
+        <div class="value" id="val-right">---</div>
+        <div class="bar-wrap"><div class="bar-fill" id="bar-right" style="width:0%"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 姿态 -->
+  <div class="section">
+    <div class="section-title">姿态</div>
+    <div class="attitude">
+      <div class="att-card">
+        <div class="label">倾角 Tilt</div>
+        <div class="value" id="val-tilt">---°</div>
+      </div>
+      <div class="att-card">
+        <div class="label">跌倒检测</div>
+        <div class="value" id="val-fall" style="color:#4ade80;">安全</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态 -->
+  <div class="alert-box alert-ok" id="alert-box">等待数据...</div>
+
+  <!-- 原始数据 -->
+  <div class="section" style="margin-top:16px;">
+    <div class="section-title">最新数据帧</div>
+    <div class="log-line" id="raw-frame" style="color:#94a3b8;">---</div>
+  </div>
+
+  <div class="error-msg" id="error-msg"></div>
+
+  <!-- 跌倒通知弹窗 -->
+  <div class="notify-overlay" id="notify-overlay">
+    <div class="notify-popup">
+      <div class="icon">&#128276;</div>
+      <h2>已通知联系人</h2>
+      <div class="detail">
+        检测到跌倒事件，已自动发送邮件至预设联系人<br>
+        <strong style="color:#e2e8f0;" id="notify-email">—</strong><br>
+        请立即确认使用者安全
+      </div>
+      <button class="btn" onclick="dismissNotify()">我知道了</button>
+    </div>
+  </div>
+
+  <!-- 顶部通知条 -->
+  <div class="notify-toast" id="notify-toast">
+    &#9993; 跌倒通知已发送至预设联系人
+  </div>
+
+  <div class="status-bar">
+    <span><span class="dot dead" id="status-dot"></span> <span id="status-text">未连接</span></span>
+    <span id="tick">---</span>
+  </div>
+</div>
+
+<script>
+const API = '/data';
+let errors = 0;
+let lastNotified = false;   // 跟踪上次通知状态，避免重复弹窗
+let popupDismissed = false; // 用户是否已关闭弹窗
+
+function dismissNotify() {
+  document.getElementById('notify-overlay').classList.remove('show');
+  popupDismissed = true;
+  // 10秒后允许再次弹窗（防止同一事件反复触发）
+  setTimeout(() => { popupDismissed = false; }, 10000);
+}
+
+function barColor(d) {
+  if (d <= 0) return '#334155';
+  if (d < 20) return '#ef4444';
+  if (d < 50) return '#fbbf24';
+  return '#334155';
+}
+
+function cardBorder(d) {
+  if (d <= 0) return '1px solid transparent';
+  if (d < 20) return '1px solid rgba(239,68,68,.5)';
+  if (d < 50) return '1px solid rgba(251,191,36,.5)';
+  return '1px solid transparent';
+}
+
+function updateDisplay(data) {
+  // Distances
+  ['front','left','right'].forEach(k => {
+    const d = data[k + '_cm'] || 0;
+    document.getElementById('val-' + k).textContent = d > 0 ? d : '---';
+    const bar = document.getElementById('bar-' + k);
+    const pct = Math.min(d / 300 * 100, 100);
+    bar.style.width = pct + '%';
+    bar.style.background = barColor(d);
+    document.getElementById('card-' + k).style.border = cardBorder(d);
+  });
+
+  // Tilt angle
+  document.getElementById('val-tilt').textContent = data.angle + '°';
+
+  // Fall status
+  const fallEl = document.getElementById('val-fall');
+  if (data.fall) {
+    fallEl.textContent = '跌倒!';
+    fallEl.style.color = '#ef4444';
+  } else {
+    fallEl.textContent = '安全';
+    fallEl.style.color = '#4ade80';
+  }
+
+  // Alert box
+  const ab = document.getElementById('alert-box');
+  ab.className = 'alert-box';
+  const alert = data.alert || 'OK';
+  const symbols = {OK:'●', WARN:'▲', DANGER:'◆', FALL:'!!!'};
+  const labels = {OK:'安全', WARN:'注意障碍物', DANGER:'危险！碰撞风险', FALL:'跌倒警报！请立即响应'};
+  ab.classList.add('alert-' + alert.toLowerCase());
+  ab.textContent = (symbols[alert] || '') + ' ' + alert + ' — ' + (labels[alert] || '');
+
+  // Raw frame (Bluetooth data format)
+  const fd = String(data.front_cm).padStart(3,'0');
+  const ld = String(data.left_cm).padStart(3,'0');
+  const rd = String(data.right_cm).padStart(3,'0');
+  document.getElementById('raw-frame').textContent =
+    'F:' + fd + ' L:' + ld + ' R:' + rd + ' Angle:' + data.angle + '° ' + alert;
+
+  // Fall notification popup (rising edge: fall just detected + email sent)
+  if (data.notified && !lastNotified && !popupDismissed) {
+    document.getElementById('notify-overlay').classList.add('show');
+    // Toast notification
+    const toast = document.getElementById('notify-toast');
+    toast.classList.add('show');
+    setTimeout(() => { toast.classList.remove('show'); }, 8000);
+  }
+  // Reset when fall clears
+  if (!data.fall && lastNotified) {
+    popupDismissed = false;
+  }
+  lastNotified = data.notified;
+
+  // Connection status
+  errors = 0;
+  document.getElementById('conn-status').textContent = 'HC-05 蓝牙已连接 · 实时接收';
+  document.getElementById('status-dot').className = 'dot live';
+  document.getElementById('status-text').textContent = '蓝牙数据接收中';
+  document.getElementById('error-msg').style.display = 'none';
+}
+
+function fetchData() {
+  fetch(API)
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(data => {
+      updateDisplay(data);
+      document.getElementById('tick').textContent = new Date().toLocaleTimeString();
+    })
+    .catch(e => {
+      errors++;
+      document.getElementById('conn-status').textContent = '等待蓝牙数据...';
+      document.getElementById('status-dot').className = 'dot dead';
+      document.getElementById('status-text').textContent = '连接失败 (' + errors + ')';
+      if (errors > 5) {
+        document.getElementById('error-msg').style.display = 'block';
+        document.getElementById('error-msg').textContent =
+          '无法连接到数据服务 (http://localhost:8080/data)。请确认 python guide_cane_server.py 已启动。';
+        document.getElementById('conn-status').textContent = '蓝牙服务未启动';
+      }
+    });
+}
+
+// Poll every 300ms
+setInterval(fetchData, 300);
+fetchData();
+</script>
+</body>
+</html>
